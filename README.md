@@ -31,9 +31,8 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 <CURRENT_DIRECTORY>/
 ├── README.md                                ← this file
 │
-├── Research Paper/
-│   ├── RLMRec_SASRec.pdf                    ← Research Paper
-│   └── RLMRec_SASRec_Presentation.pdf       ← Presentation as an overview of the Research Paper
+├── Paper Presentation/
+│   └── SemanticSASRec.pptx                  ← Presentation as an overview of the Research Paper
 │ 
 ├── sasrec_model.py                          ← SASRec architecture
 ├── rlmrec_model.py                          ← RLMRecSASRec wrapper + InfoNCE
