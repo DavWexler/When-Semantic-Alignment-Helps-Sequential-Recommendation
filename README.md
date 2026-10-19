@@ -1,15 +1,17 @@
-# Bringing Language-Model Semantics into Sequential Recommendation
+# SemanticSASRec: Language-Model Semantics for Sequential Recommendation
 
-A reproducible reference implementation for the paper *When Semantic Alignment Helps Sequential
-Recommendation*.
+Research code accompanying the draft *When Semantic Alignment Helps Sequential
+Recommendation*. See the [paper draft](Paper%20Presentation/SemanticSASRec.pdf) and
+[presentation](Paper%20Presentation/SemanticSASRec.pptx). The current validation
+status and remaining publication checks are recorded in [§8](#8-validation-and-publication-status).
 
 The research question is simple: **RLMRec's contrastive semantic-alignment recipe was published on graph-CF backbones (LightGCN, SGL, SimGCL, DCCF, etc.). Does that same recipe transfer to a sequential SASRec backbone?** To answer it we train three models head-to-head on the same data splits and evaluator:
 
-1. **SASRec** — paper-faithful baseline (Kang & McAuley, ICDM 2018).
-2. **RLMRec+LightGCN** — paper-faithful RLMRec-Con reproduction (Ren et al., WWW 2024).
+1. **SASRec** — sequential baseline based on Kang & McAuley (ICDM 2018).
+2. **RLMRec+LightGCN** — graph baseline adapting the RLMRec-Con alignment recipe (Ren et al., WWW 2024) to this project’s profiles and evaluation protocol.
 3. **SemanticSASRec** — project-specific extension: SASRec backbone with RLMRec's two InfoNCE alignment heads (user-state ↔ user-profile-text, item-embedding ↔ item-profile-text). Not in the original RLMRec paper.
 
-All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amazon-Books** (Reviews 2023), under a strict full-rank leave-one-out protocol.
+The training scripts support **MovieLens-1M**, **Yelp** (Open Dataset), and **Amazon-Books** (Reviews 2023), with full-catalog leave-one-out evaluation. This is a project implementation, not a claim to reproduce the original papers’ numerical results: dataset versions, preprocessing, templated profiles, encoder, and evaluation can differ. The original RLMRec paper and the separate graph baseline retain the name RLMRec; the sequential extension is consistently named **SemanticSASRec** (`semantic_sasrec` in CLI identifiers and output paths).
 
 ---
 
@@ -22,20 +24,24 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 5. [Reproducing the paper](#5-reproducing-the-paper)
 6. [Per-script flag reference](#6-per-script-flag-reference)
 7. [Output / artifact layout](#7-output--artifact-layout)
-8. [Troubleshooting](#8-troubleshooting)
+8. [Validation and publication status](#8-validation-and-publication-status)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
 ## 1. Repository layout
 
 ```
-<CURRENT_DIRECTORY>/
+repository/
 ├── README.md                                ← this file
 │
-├── Paper/
-│   ├── SemanticSASRec.pdf 					 ← Draft of the Research Paper
-│   └── SemanticSASRec.pptx                  ← Presentation as an overview of the Research Paper
-│ 
+├── Paper Presentation/
+│   ├── SemanticSASRec.pdf                   ← paper draft
+│   └── SemanticSASRec.pptx                  ← presentation
+│
+├── tests/
+│   └── test_training_modes.py              ← CPU/MPS training/evaluation regression tests
+│
 ├── sasrec_model.py                          ← SASRec architecture
 ├── semantic_sasrec_model.py                 ← SemanticSASRec wrapper + InfoNCE
 ├── lightgcn_model.py                        ← LightGCN + LightGCNRLMRec wrapper
@@ -51,7 +57,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 ├── rlmrec_lightgcn_train.py                 ← train RLMRec+LightGCN
 │
 ├── seed_aggregation.py                      ← multi-seed aggregation helpers
-├── run_all.py                               ← orchestrator: ML-1M, 3 models × N seeds
+├── run_all.py                              ← orchestrator: ML-1M, 3 models × N seeds
 ├── run_all_yelp.py                          ← orchestrator: Yelp,   3 models × N seeds
 ├── run_all_amazon.py                        ← orchestrator: Amazon, 3 models × N seeds
 ├── run_everything.py                        ← top-level: runs all three orchestrators + make_overview
@@ -67,21 +73,21 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 
 | File | Purpose |
 |------|---------|
-| `sasrec_model.py` | Implements `SASRec`: an item-embedding table, sinusoidal-position-add, N causal self-attention blocks, and a final-position dot-product head. Exposes `forward(input_seq, pos_seq, neg_seq)` for BCE-style training and `score_all_items(input_seq) -> (B, num_items+1)` for full-rank scoring. Defaults match the paper (`hidden=50, blocks=2, heads=1, dropout=0.2, max_len=200`). |
+| `sasrec_model.py` | Implements `SASRec`: an item-embedding table, learned positional embeddings, N causal self-attention blocks, and a final-position dot-product head. Exposes `forward(input_seq, pos_seq, neg_seq)` for BCE-style training and `score_all_items(input_seq) -> (B, num_items+1)` for full-rank scoring. Implementation defaults are `hidden=50, blocks=2, heads=1, dropout=0.2, max_len=200`. |
 | `semantic_sasrec_model.py` | Defines `ProjectionHead` (linear or 2-layer GELU MLP), `SemanticSASRec` (wraps `SASRec` with two `ProjectionHead`s, one for user-state and one for item-embedding), and `info_nce(projected, target, temperature)` — symmetric cross-entropy on cosine-similarity logits. This is the InfoNCE alignment loss that ties CF embeddings to the frozen sentence-transformer space. |
 | `lightgcn_model.py` | Implements `LightGCN` (He et al., 2020) using edge-based `index_add_` propagation (works on MPS without sparse matmul), `LightGCNRLMRec` (wraps `LightGCN` with the same `ProjectionHead`s), and `build_norm_adjacency(...)` which constructs the symmetric-normalized bipartite adjacency. |
 
 ### 2.2 Data + preprocessing modules
 
-All three dataset modules share the same interface: `load_<ds>_with_semantics(data_dir, cache_dir, model_name, device, ...) -> bundle dict`.
+The semantic loaders are `rlmrec_data.load_ml1m_with_semantics`, `yelp_data.load_yelp_with_semantics`, and `amazon_data.load_amazon_with_semantics`. They accept data/cache directories, encoder name, device, and applicable dataset filters, and return a bundle with splits, ID mappings, counts, and user/item semantic tensors. The plain SASRec trainer uses the interaction loaders without encoding text.
 
 | File | Purpose |
 |------|---------|
-| `sasrec_data.py` | MovieLens-1M loader: `download_ml1m` (auto-fetches the zip from `files.grouplens.org`), `build_sequences` (5-core implicit, sorts by timestamp, remaps to 1-indexed IDs), `split_sequences` (leave-one-out), `SASRecTrainDataset` (yields `(input_seq, pos_seq, neg_seq)` for BCE), and `build_eval_inputs`. |
+| `sasrec_data.py` | MovieLens-1M loader: `download_ml1m` (auto-fetches the zip from `files.grouplens.org`), `build_sequences` (treats ratings as implicit events, sorts by timestamp, remaps to 1-indexed IDs, excludes user sequences shorter than five; no item-core filtering), `split_sequences` (leave-one-out), `SASRecTrainDataset` (yields `(input_seq, pos_seq, neg_seq)` for BCE), and `build_eval_inputs`. |
 | `yelp_data.py` | Yelp Open Dataset loader. **Manual download** is required (Yelp's TOS). Streams the ~5 GB review JSON, filters by `start_year`, applies iterative k-core (`min_inter` default 5), builds business + user profile texts from metadata, encodes them with a frozen sentence-transformer, and caches the result as `.npy`. Function `load_yelp_with_semantics` is the one-stop loader used by the SemanticSASRec and RLMRec+LightGCN training scripts. |
-| `amazon_data.py` | Amazon Reviews 2023 (McAuley Lab) loader. **Auto-downloads** the gzipped review and metadata JSONL for one category (default `Books` — chosen because it carries the richest per-item text and matches the RLMRec paper's Amazon-Books benchmark). Same preprocessing recipe as Yelp (start-year + iterative k-core). |
+| `amazon_data.py` | Amazon Reviews 2023 (McAuley Lab) loader. **Auto-downloads** the gzipped review and metadata JSONL for one category (default `Books`). Uses the 2023 release, not necessarily the same Amazon-Books data or split as the original RLMRec paper. Same start-year and iterative k-core approach as Yelp. |
 | `rlmrec_data.py` | ML-1M-specific semantic-profile builder. Constructs item texts as `"Title (Year). Genres: A, B, C."` and user texts as `"A <age> <gender> <occupation> who enjoys <top genres>. Recently watched: <recent titles>."`. Encodes them with `sentence-transformers` and caches the result. |
-| `eval_full_rank.py` | Shared full-rank leave-one-out evaluator. Computes HR@K and NDCG@K for K ∈ {1, 5, 10, 20} plus MRR. Used identically by all three trainers, so headline numbers are directly comparable. `build_exclusion_mask` masks each user's training history (and val item, for test) so we never score against an item the model has already seen. |
+| `eval_full_rank.py` | Shared full-rank leave-one-out evaluator. Computes HR@K and NDCG@K for K ∈ {1, 5, 10, 20} plus MRR. Applies the shared candidate masking and metrics described in §2.5, subject to the repeated-target limitation in §2.6. |
 
 ### 2.3 Training scripts
 
@@ -89,7 +95,7 @@ All three dataset modules share the same interface: `load_<ds>_with_semantics(da
 |------|---------|
 | `sasrec_train.py` | End-to-end pure-SASRec trainer. BCE-with-logits loss; auto-picks CUDA → MPS → CPU; selects the best epoch by val NDCG@10; writes `<out_dir>/{train_history.csv, sasrec_best.pt, test_metrics.csv, run_metadata.json, *.png}`. Supports `--dataset {ml1m,yelp,amazon}`. |
 | `semantic_sasrec_train.py` | SemanticSASRec trainer. Same SASRec backbone, plus two InfoNCE alignment heads at every batch. Loss is `cf_loss + λ_user · user_align + λ_item · item_align`. |
-| `rlmrec_lightgcn_train.py` | RLMRec+LightGCN trainer (paper-faithful RLMRec). BPR ranking loss + L2 reg on layer-0 embeddings + two InfoNCE heads, identical loss schema to the SASRec variant. |
+| `rlmrec_lightgcn_train.py` | RLMRec+LightGCN trainer under the project protocol. BPR ranking loss + L2 reg on layer-0 embeddings + two InfoNCE heads, identical loss schema to the SASRec variant. |
 
 ### 2.4 Orchestration / aggregation
 
@@ -101,42 +107,60 @@ All three dataset modules share the same interface: `load_<ds>_with_semantics(da
 | `run_all_amazon.py` | Same as `run_all.py`, but writes to `artifacts_amazon/` and forwards `--dataset amazon`. Adds Amazon-specific filter and category flags. |
 | `run_everything.py` | Top-level: invokes `run_all.py`, `run_all_yelp.py`, `run_all_amazon.py`, then `make_overview.py` for each dataset. This is the one-shot reproduction entrypoint. |
 | `run_ablations.py` | Separate ablation orchestrator for the SemanticSASRec ablation grid (λ sweep, τ sweep, MLP-vs-linear projection head, MiniLM-vs-BGE encoder, loss-component flips, plus optional E5-Mistral-7B). 50 epochs × 3 seeds × N variants × 3 datasets by default. Uses paired t-tests against an in-ablation reference variant (`sasrec_full` / `lightgcn_full`). |
-| `make_overview.py` | Reads the comparison CSVs and per-model `run_metadata.json` for one dataset and renders `<artifacts_root>/comparison/results_overview.md` with the headline table, run-config table, head-to-head observations, and a dataset-specific paper-comparison section. |
+| `make_overview.py` | Reads per-model `test_metrics.csv`, `test_metrics_aggregate.csv`, and `run_metadata.json` for one dataset and renders `<artifacts_root>/comparison/results_overview.md` with the headline table, run-config table, head-to-head observations, and a dataset-specific paper-comparison section. |
+
+### 2.5 Data, training, and evaluation protocol
+
+- **Interactions and splits:** rating values are ignored. Within each user’s chronological sequence, the final event is test, the preceding event is validation, and earlier events train. Yelp/Amazon break timestamp ties by raw item ID; MovieLens preserves file order for ties. Yelp/Amazon use iterative user/item filtering with `min_inter` (default 5), capped at ten passes, then discard user sequences shorter than five. Repeated user–item events are retained.
+- **Semantic features:** user-history summaries use training events. Item/user text comes from templates and metadata, not generated LLM profiles. A frozen sentence transformer produces normalized float32 embeddings; trainable projection heads use symmetric cosine InfoNCE. At recommendation time, the models use backbone dot-product scores without semantic reranking.
+- **Training and checkpoint selection:** each epoch starts with `model.train()`. Validation and final testing use `model.eval()` and no gradients, disabling dropout. Validation runs every `eval_every` epochs and on the final epoch. The checkpoint with the highest validation NDCG@10 is selected; equal scores retain the earlier checkpoint. Training always runs the requested epoch count; there is no early stopping.
+- **Evaluation inputs:** SASRec and SemanticSASRec left-pad/truncate histories to `max_len` and append the validation item to the test history. LightGCN keeps its training-only graph. All three mask padding and training items from candidates; test evaluation also masks the validation item.
+- **Ranking and metrics:** every remaining catalog item is scored, without sampled evaluation negatives. Rank is `1 + count(score > target_score)`, so ties receive the best tied rank. HR@K and NDCG@K use K = 1, 5, 10, 20; MRR is untruncated. Metrics are means across evaluated users. These values are not directly comparable to sampled-negative paper results.
+- **Seeds and statistics:** headline results use seeds 42–46; ablations use 42–44. Aggregates report mean, sample standard deviation, and the number of available seed values (`n`), not confidence intervals. Ablation significance uses two-sided paired t-tests on common seed IDs against the matched reference, without multiple-comparison correction. Seeds are initialized, but deterministic kernels are not enforced across hardware/software versions.
+
+### 2.6 Implementation limits relevant to the paper
+
+**Temporal metadata:** training-only history summaries do not make all side information time-filtered. Yelp business stars and user rating/review aggregates, and Amazon item average ratings, come from the full release metadata without a split-time cutoff. These fields may contain information from after the held-out events. Disclose that assumption; do not describe the current pipeline as verified leakage-free.
+
+**Repeated held-out items:** if a validation/test target already occurs in its exclusion history, the current evaluator masks that target too and does not restore its score. Repeated events are not removed during preprocessing. Measure how often this occurs and settle the intended repeated-item evaluation policy before treating the resulting metrics as publication-ready.
+
+**Resource use:** Yelp/Amazon files are parsed line by line, but retained interactions occupy RAM. Evaluation allocates dense validation and test exclusion masks of users × (items + 1), in addition to batched scores. Reducing evaluation batch size does not remove the full mask allocation.
 
 ---
 
 ## 3. Environment setup
 
-The repository ships with a fully-configured Python 3.12 virtual environment at `venv/`. **You must activate it before running anything**, otherwise `python` will resolve to the system interpreter, which does not have `torch`, `sentence-transformers`, or `scipy` installed:
+Run commands from the repository root using Python 3.12. A virtual environment is local to your checkout and **is not included in the Git repository**. Create it on a new machine:
 
 ```bash
-cd "/path/to/dir"
-source venv/bin/activate
-```
-
-If you need to recreate the environment from scratch (e.g. on a new machine), install the following packages into a Python 3.12 venv:
-
-```bash
+cd /path/to/repository
 python3.12 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
-pip install torch numpy scipy matplotlib sentence-transformers huggingface_hub tqdm transformers
+python -m pip install --upgrade pip
+python -m pip install torch numpy scipy matplotlib sentence-transformers huggingface_hub tqdm transformers
+python -m pip check
 ```
 
-The exact versions in `venv/` (as of the paper submission) are:
+For an existing environment, activate it with `source venv/bin/activate`. You can also use `venv/bin/python` directly. The installation command above resolves available package versions; there is currently no committed dependency lockfile. Save the resolved environment for each experiment as described in §8.
 
-- `torch==2.11.0`
-- `numpy==2.4.2`
-- `scipy==1.17.1`
-- `matplotlib==3.10.8`
-- `sentence-transformers==5.4.1`
-- `huggingface-hub==1.11.0`
-- `transformers==5.5.4`
-- `tqdm==4.67.3`
+The **local regression-test environment checked on 2026-10-19** was Python 3.12.7 with these packages. This is a development snapshot, not verified provenance for the manuscript’s numerical results:
 
-### Device autodetection
+| Package | Installed version |
+|---------|-------------------|
+| torch | 2.14.1 |
+| numpy | 2.5.4 |
+| scipy | 1.18.1 |
+| matplotlib | 3.11.2 |
+| sentence-transformers | 6.1.0 |
+| huggingface-hub | 1.33.0 |
+| transformers | 5.20.2 |
+| tqdm | 4.70.1 |
 
-Every trainer calls `sasrec_train.pick_device`, which prefers **CUDA → MPS → CPU** in that order. On a Mac M-series chip it will land on MPS automatically. No flag is needed.
+### Device selection and evaluation mode
+
+Every trainer calls `sasrec_train.pick_device`, which chooses **CUDA → MPS → CPU** according to availability. There is no `--device` CLI flag. CPU and MPS have regression coverage; CUDA is selected by the code but was not tested in this audit.
+
+Evaluation must use `model.eval()`; `torch.no_grad()` alone does not turn off dropout. The trainers now do both, including after loading the best checkpoint. This fixes the observed MPS attention-dropout exception and ensures dropout is disabled for validation/test on every backend. Training dropout remains enabled at the next epoch. See §8 for the implications for older experiment outputs.
 
 ---
 
@@ -144,7 +168,7 @@ Every trainer calls `sasrec_train.pick_device`, which prefers **CUDA → MPS →
 
 All three datasets should be placed under `data/`. **Two of them auto-download on first run** (MovieLens-1M and Amazon). Yelp requires a manual download because of Yelp's terms-of-service click-through.
 
-The expected on-disk layout after all downloads:
+The expected on-disk layout after all downloads (sizes are approximate and depend on the release):
 
 ```
 data/
@@ -199,7 +223,7 @@ mkdir -p data/yelp
 mv /path/to/extracted/yelp_academic_dataset_*.json data/yelp/
 ```
 
-The three files actually used are `*_review.json`, `*_business.json`, `*_user.json`. The checkin and tip files are optional (the loader doesn't read them).
+The loader requires `*_review.json`, `*_business.json`, and `*_user.json`; the semantic models use business/user metadata. Checkin and tip files are optional and are not read.
 
 If the JSON files are missing, `yelp_data.ensure_yelp_files` will raise a `FileNotFoundError` with a clear message telling you where to put them.
 
@@ -222,22 +246,22 @@ curl -O https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/raw/meta_ca
 cd ../..
 ```
 
-If you'd rather benchmark a different category (e.g. `Electronics`, `Movies_and_TV`), the URL template is the same — just swap `Books` for the category name listed on the [Amazon Reviews 2023 page](https://amazon-reviews-2023.github.io/). Pass `--amazon_category <Name>` to any trainer or orchestrator. **Note**: the paper's headline results use `Books` — change it only if you understand you'll no longer be reproducing the paper.
+If you'd rather benchmark a different category (e.g. `Electronics`, `Movies_and_TV`), the URL template is the same — just swap `Books` for the category name listed on the [Amazon Reviews 2023 page](https://amazon-reviews-2023.github.io/). Pass `--amazon_category <Name>` to a trainer, `run_all_amazon.py`, or `run_everything.py`. The draft’s stated category is `Books`; another category is a different experimental setting.
 
 ### 4.4 Sentence-transformer embedding cache
 
 The semantic-profile pipeline encodes user/item texts with a frozen sentence-transformer and caches the result as `.npy` under `data/semantic_cache/`. **You don't download this cache** — it's generated on first run.
 
-The cache key is `{dataset}_{user|item}_emb_{model_name_with_slashes_replaced}.npy`. The reference set of files (after running the headline grid with the default BGE-large encoder, plus the MiniLM ablation):
+Encoder-name slashes become `__` in cache filenames. MovieLens has no dataset prefix; Yelp uses `yelp_`; Amazon uses `amazon_<lowercase-category>_`. Example files generated by the default BGE-large encoder and MiniLM ablation are:
 
 ```
 data/semantic_cache/
-├── user_emb_BAAI__bge-large-en-v1.5.npy                              (ML-1M, 24 MB)
-├── item_emb_BAAI__bge-large-en-v1.5.npy                              (ML-1M, 15 MB)
-├── yelp_user_emb_BAAI__bge-large-en-v1.5.npy                         (426 MB)
-├── yelp_item_emb_BAAI__bge-large-en-v1.5.npy                         (221 MB)
-├── amazon_books_user_emb_BAAI__bge-large-en-v1.5.npy                 (640 MB)
-├── amazon_books_item_emb_BAAI__bge-large-en-v1.5.npy                 (460 MB)
+├── user_emb_BAAI__bge-large-en-v1.5.npy
+├── item_emb_BAAI__bge-large-en-v1.5.npy
+├── yelp_user_emb_BAAI__bge-large-en-v1.5.npy
+├── yelp_item_emb_BAAI__bge-large-en-v1.5.npy
+├── amazon_books_user_emb_BAAI__bge-large-en-v1.5.npy
+├── amazon_books_item_emb_BAAI__bge-large-en-v1.5.npy
 ├── user_emb_sentence-transformers__all-MiniLM-L6-v2.npy              (ML-1M MiniLM)
 ├── item_emb_sentence-transformers__all-MiniLM-L6-v2.npy              (ML-1M MiniLM)
 ├── yelp_user_emb_sentence-transformers__all-MiniLM-L6-v2.npy
@@ -246,7 +270,7 @@ data/semantic_cache/
 └── amazon_books_item_emb_sentence-transformers__all-MiniLM-L6-v2.npy
 ```
 
-If you delete these `.npy` files, the next training run will regenerate them — but that costs significant wall-clock time. Leave them in place.
+**Cache validity:** keys do not include data revisions, filter settings, ID mappings, profile templates, or encoder revisions. MovieLens checks only whether both files exist; Yelp/Amazon additionally check row counts, which cannot detect a changed mapping with the same size. Reuse caches only when all those inputs are unchanged. Otherwise use a fresh `--cache_dir` on the semantic trainers or regenerate the relevant files. Initial encoding may download encoder weights and can take substantial time; the regression tests bypass encoding and do not validate those downloads.
 
 ---
 
@@ -254,7 +278,7 @@ If you delete these `.npy` files, the next training run will regenerate them —
 
 ### 5.1 One command (the full grid)
 
-The simplest path — train SASRec, RLMRec+LightGCN, and SemanticSASRec on all three datasets, with the paper's default settings (5 seeds × 75 epochs):
+After preparing Yelp and the environment, train SASRec, RLMRec+LightGCN, and SemanticSASRec on all three datasets with the draft’s stated headline budget: 5 seeds × 75 epochs, or 45 training runs. Validation is every 20 epochs and on the final epoch. Read §8 before using existing results from older code.
 
 ```bash
 source venv/bin/activate
@@ -267,7 +291,7 @@ After this finishes you'll have:
 - `artifacts_yelp/comparison/comparison.csv` and `results_overview.md` (Yelp)
 - `artifacts_amazon/comparison/comparison.csv` and `results_overview.md` (Amazon-Books)
 
-These are the files the paper's Table 1 and Figures 2–3 are derived from.
+The headline comparison corresponds to Table 1 and Figure 2 in the current draft; Table 2 and Figure 3 concern the separate ablation runs. This mapping does not verify the draft’s numbers against regenerated results.
 
 ### 5.2 Single dataset
 
@@ -282,12 +306,14 @@ python run_everything.py --datasets yelp
 python run_everything.py --datasets amazon
 ```
 
-Or equivalently, invoke the per-dataset orchestrators directly:
+To train and aggregate directly, invoke a per-dataset orchestrator. These commands do not create the Markdown overview by default; generate it explicitly:
 
 ```bash
-python run_all.py            # ML-1M
-python run_all_yelp.py       # Yelp
-python run_all_amazon.py     # Amazon-Books
+python run_all.py
+python make_overview.py --dataset ml1m
+
+python run_all_yelp.py --also_make_overview
+python run_all_amazon.py --also_make_overview
 ```
 
 ### 5.3 Single model on a single dataset, single seed
@@ -302,7 +328,7 @@ python rlmrec_lightgcn_train.py   --dataset amazon --seed 42 --out_dir artifacts
 
 ### 5.4 Smoke test (a few epochs)
 
-To confirm the pipeline works end-to-end before launching the real grid:
+First run the offline regression tests in §8. For a small run using real MovieLens data (downloaded if absent):
 
 ```bash
 python sasrec_train.py --dataset ml1m --seed 42 --epochs 5 --eval_every 5 \
@@ -311,7 +337,7 @@ python sasrec_train.py --dataset ml1m --seed 42 --epochs 5 --eval_every 5 \
 
 ### 5.5 Aggregation-only (no retraining)
 
-If per-seed CSVs already exist (e.g. you killed the run halfway, or you just want to regenerate the markdown and PNGs), skip training entirely:
+If completed runs already contain per-seed `test_metrics.csv` files, rebuild aggregates and comparison plots without training. The top-level command also regenerates overviews; direct dataset runners require the separate `make_overview.py` commands shown below:
 
 ```bash
 python run_everything.py --compare_only
@@ -321,7 +347,9 @@ python run_all_yelp.py   --compare_only
 python run_all_amazon.py --compare_only
 ```
 
-You can also rebuild a single dataset's markdown without invoking the runner:
+Pass the same `--seeds` used for the original runs if they differ from the default list. Missing seed files are skipped; inspect each metric’s `n` before reporting it. This mode does not finish interrupted training, re-evaluate checkpoints, or regenerate per-seed training plots. It cannot correct old metrics after an evaluation change.
+
+You can also rebuild a single dataset’s Markdown from its per-model metrics without invoking the runner:
 
 ```bash
 python make_overview.py --dataset ml1m
@@ -331,24 +359,41 @@ python make_overview.py --dataset amazon
 
 ### 5.6 Ablation grid
 
-The ablation grid (Table 2 in the paper) is a separate run — it uses 50 epochs × 3 seeds × 14 variants × 3 datasets, with paired t-tests against an in-ablation reference (`sasrec_full` / `lightgcn_full`).
+The default ablation grid uses **50 epochs × 3 seeds × 15 variants × 3 datasets**, or **135 training runs**, with validation every 10 epochs. There are 13 SemanticSASRec configurations and 2 LightGCN configurations, including their references. Paired t-tests compare variants with `sasrec_full` or `lightgcn_full` at the same budget. Optional E5 adds two configurations, giving 17 variants and 153 runs. The draft’s references to 14 variants need reconciliation with this catalog before publication.
 
 ```bash
 # Full ablation grid
 python run_ablations.py
 
-# Smoke test on one variant
+# Smoke test: selected variant plus its automatically included reference
 python run_ablations.py --datasets ml1m --variants sasrec_no_user_align \
     --seeds 42 --epochs 5
 
 # Re-aggregate existing per-seed CSVs without retraining
 python run_ablations.py --aggregate_only
 
-# Add the heavy E5-Mistral-7B encoder variant (not included in research paper)
+# Add optional E5-Mistral-7B encoder variants for both backbones
 python run_ablations.py --include_e5_mistral
 ```
 
-Output goes to `artifacts_ablation/{ml1m,yelp,amazon}/comparison/ablation_overview.md`.
+Output goes to `artifacts_ablation/{ml1m,yelp,amazon}/comparison/ablation_overview.md`. Selecting a variant automatically includes its reference; `--skip` can remove that reference. E5 variants require `--include_e5_mistral` even when selected by name. A one-seed smoke run cannot support paired significance. The 75-epoch headline baselines may appear as reference rows, but are not used as the 50-epoch ablation significance baseline.
+
+### 5.7 Reruns and custom encoders
+
+There is no resume or skip-completed option. A training rerun starts at epoch 1 and writes to the same configured paths; checkpoints contain model state, without optimizer or RNG state. Preserve earlier outputs separately and use fresh run directories for changed settings. The orchestrators use fixed model directories under `artifacts*`; `--compare_dir` changes comparison output only.
+
+`run_everything.py --model_name ...` currently forwards the encoder flag to every active trainer, but plain SASRec does not accept it. To change the encoder through this entry point, run the plain baseline separately and skip it in the encoder run:
+
+```bash
+# Plain baseline, all datasets
+python run_everything.py --skip_models rlmrec_lightgcn semantic_sasrec
+
+# Semantic models, all datasets, with a custom encoder
+python run_everything.py --skip_models sasrec \
+    --model_name sentence-transformers/all-MiniLM-L6-v2
+```
+
+Use fresh or separately archived output directories when comparing different encoders: encoder names are part of cache filenames, but not run-output paths. `--skip` / `--skip_models` prevent training; existing metrics for skipped models can still appear in aggregates.
 
 ---
 
@@ -363,8 +408,8 @@ Pure SASRec trainer.
 | `--dataset` | str | `ml1m` | One of `ml1m`, `yelp`, `amazon`. |
 | `--epochs` | int | `75` | Number of training epochs. |
 | `--batch_size` | int | `128` | Mini-batch size. |
-| `--max_len` | int | `200` | Max sequence length (SASRec paper default). |
-| `--hidden` | int | `50` | Hidden dimension (SASRec paper default). |
+| `--max_len` | int | `200` | Maximum sequence length. |
+| `--hidden` | int | `50` | Hidden dimension. |
 | `--blocks` | int | `2` | Number of self-attention blocks. |
 | `--heads` | int | `1` | Number of attention heads. |
 | `--dropout` | float | `0.2` | Dropout rate. |
@@ -383,7 +428,7 @@ Pure SASRec trainer.
 
 ### 6.2 `semantic_sasrec_train.py`
 
-Same flags as `sasrec_train.py`, **plus**:
+Same flags as `sasrec_train.py`, with the differences/additions below. `--num_workers` is accepted but currently unused because this trainer batches manually. Sequential full-rank evaluation uses the evaluator’s fixed default batch size of 256; it has no `--eval_batch_size` CLI flag.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -394,7 +439,7 @@ Same flags as `sasrec_train.py`, **plus**:
 | `--lambda_user` | float | `0.1` | Weight on the user-alignment InfoNCE loss. |
 | `--temperature` | float | `0.1` | InfoNCE temperature. |
 | `--proj_head` | str | `mlp` | `mlp` (2-layer GELU) or `linear` (single nn.Linear). |
-| `--items_per_batch` | int | `512` | Unique items sampled per batch for item-alignment InfoNCE. |
+| `--items_per_batch` | int | `512` | Maximum distinct positive items from the current batch used for item-alignment InfoNCE. |
 
 ### 6.3 `rlmrec_lightgcn_train.py`
 
@@ -424,7 +469,7 @@ Same flags as `sasrec_train.py`, **plus**:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--skip` | list | `[]` | Models to skip; one or more of `sasrec`, `rlmrec_lightgcn`, `semantic_sasrec`. |
+| `--skip` | list | `[]` | Models not to train: `sasrec`, `rlmrec_lightgcn`, `semantic_sasrec`. Existing metrics are still aggregated. |
 | `--compare_only` | bool | `False` | Skip training; only re-aggregate existing per-seed CSVs. |
 | `--compare_dir` | str | `artifacts/comparison` | Where to write the comparison files. |
 | `--epochs` | int | _(trainer default 75)_ | Override `--epochs` for every training subprocess. |
@@ -433,7 +478,9 @@ Same flags as `sasrec_train.py`, **plus**:
 | `--seed` | int | _none_ | Legacy single-seed alias for `--seeds <N>`. |
 | `extra` | REMAINDER | _none_ | Anything after `--` is forwarded verbatim to every training subprocess. |
 
-`run_all_yelp.py` and `run_all_amazon.py` add their dataset-specific filter flags (`--yelp_start_year`, `--yelp_min_inter`, `--amazon_start_year`, `--amazon_min_inter`, `--amazon_category`) and an `--also_make_overview` flag that runs `make_overview.py` immediately after the comparison.
+`run_all_yelp.py` adds `--yelp_start_year` / `--yelp_min_inter`; `run_all_amazon.py` adds `--amazon_start_year` / `--amazon_min_inter` / `--amazon_category`. Unspecified filters use trainer defaults. Their default comparison directories are `artifacts_yelp/comparison` and `artifacts_amazon/comparison`. Both add `--also_make_overview` (default off); `run_all.py` has no such option.
+
+Arguments after `--` go to **every active trainer**, so only use flags supported by all selected trainers. In particular, semantic-only flags require skipping plain SASRec. Do not override `--seed`, `--dataset`, or `--out_dir` through this tail: the runner’s aggregation settings will not follow those overrides. Supply either `--seed` or `--seeds`, not both.
 
 ### 6.5 `run_everything.py`
 
@@ -441,14 +488,14 @@ Same flags as `sasrec_train.py`, **plus**:
 |------|------|---------|-------------|
 | `--datasets` | list | `ml1m yelp amazon` | Which datasets to run. |
 | `--skip_models` | list | `[]` | Models to skip on every dataset. |
-| `--skip_models_ml`, `--skip_models_yelp`, `--skip_models_amazon` | list | _none_ | Per-dataset overrides for `--skip_models`. |
+| `--skip_models_ml`, `--skip_models_yelp`, `--skip_models_amazon` | list | _none_ | Replace the global skip list for that dataset; lists are not merged. |
 | `--compare_only` | bool | `False` | Skip training, just regenerate comparisons + overviews. |
 | `--no_overview` | bool | `False` | Skip the markdown overview generation step. |
-| `--epochs` | int | _(trainer default)_ | Cap epochs for every training run. |
+| `--epochs` | int | _(trainer default)_ | Set the number of epochs for every training run; no early stopping. |
 | `--eval_every` | int | _(trainer default)_ | Validation cadence for every training run. |
 | `--seeds` | int+ | _(runner default `42 43 44 45 46`)_ | Seeds for every training run. |
 | `--seed` | int | _none_ | Single-seed legacy alias. |
-| `--model_name` | str | _(trainer default BGE-large)_ | Sentence-transformer encoder name (only affects SemanticSASRec and RLMRec+LightGCN runs). |
+| `--model_name` | str | _(trainer default BGE-large)_ | Encoder override. Currently requires skipping plain SASRec; see §5.7. |
 | `--yelp_start_year` / `--yelp_min_inter` | int | _(trainer default)_ | Yelp filter knobs. |
 | `--amazon_start_year` / `--amazon_min_inter` / `--amazon_category` | int / int / str | _(trainer default)_ | Amazon filter knobs. |
 
@@ -457,14 +504,14 @@ Same flags as `sasrec_train.py`, **plus**:
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--datasets` | list | `ml1m yelp amazon` | Datasets to run. |
-| `--variants` | list | _all_ | Restrict to a subset of variants. See the docstring for the full list (`sasrec_full`, `sasrec_no_user_align`, `sasrec_lambda_0.5`, etc.). |
-| `--skip` | list | `[]` | Variants to skip. |
+| `--variants` | list | _all_ | Select variants; their references are automatically included. See the module catalog or `--help` for names. |
+| `--skip` | list | `[]` | Remove variants after reference inclusion; removing a reference disables its paired comparisons. |
 | `--seeds` | int+ | `42 43 44` | Seeds per variant. |
 | `--epochs` | int | `50` | Epochs per training run. |
 | `--eval_every` | int | `10` | Validation cadence. |
 | `--include_e5_mistral` | bool | `False` | Add the heavy E5-Mistral-7B encoder variants. |
 | `--aggregate_only` | bool | `False` | Skip training; rebuild aggregates from existing per-seed CSVs. |
-| `extra` | REMAINDER | _none_ | Forwarded verbatim to every trainer subprocess. |
+| `extra` | REMAINDER | _none_ | Forwarded to every selected trainer after the variant arguments; overriding alignment weights, temperature, or encoder here changes the declared ablation. |
 
 ### 6.7 `make_overview.py`
 
@@ -514,8 +561,74 @@ artifacts/                                 ← ML-1M
     └── results_overview.md                ← human-readable narrative
 ```
 
-`artifacts_yelp/` and `artifacts_amazon/` mirror this exactly.
+`artifacts_yelp/` and `artifacts_amazon/` use the same structure. Both semantic trainers additionally write `loss_components.png`. Model-root `run_metadata.json` is copied from the first available seed, so its seed, best epoch, and test metrics are not aggregated values; use the CSV aggregates for means/standard deviations. Per-seed metadata records arguments, device, dataset counts, model parameter count, best epoch, and final metrics; semantic trainers also record encoder name and dimension.
 
-`artifacts_ablation/{ml1m,yelp,amazon}/` follows a similar layout but keyed by variant name (e.g. `sasrec_lambda_0.5/seed_42/...`) and the comparison directory contains `ablation.csv`, `ablation_aggregate.csv`, `ablation_per_seed.csv`, `ablation_significance.csv`, `ablation_bars.png`, and `ablation_overview.md`.
+`artifacts_ablation/{ml1m,yelp,amazon}/` follows a similar layout keyed by variant name (e.g. `sasrec_lambda_0.5/seed_42/...`). Its comparison directory contains `ablation.csv`, `ablation_aggregate.csv`, `ablation_per_seed.csv`, `ablation_bars.png`, and `ablation_overview.md`. `ablation_significance.csv` is written only when there are eligible comparisons with at least two common seeds and reference data.
+
+No generated experiment outputs or checkpoints are tracked in this repository. `make_overview.py` uses templated explanatory text that can assume default settings; check it against per-seed metadata before transferring it into the paper.
 
 ---
+
+## 8. Validation and publication status
+
+### 8.1 Checks you can run locally
+
+From the repository root, using the environment from §3:
+
+```bash
+source venv/bin/activate
+python -m pip check
+python -m compileall -q -l . tests
+python -m unittest discover -s tests -v
+```
+
+`tests/test_training_modes.py` exercises all three trainers on CPU and, when available, MPS. Each case runs two epochs on synthetic interactions, performs real forward/backward passes and full-rank validation/test evaluation, writes and reloads the best checkpoint, and checks finite losses/metrics. The sequential models retain default dropout `0.2` and one attention head. Tests verify that evaluation disables dropout and that the next training epoch restores training mode. Dataset loading and semantic embeddings are supplied locally in the test; plotting is mocked, so the suite does not download data or encoder weights.
+
+On **2026-10-19**, all six tests passed in the §3 environment, including the three MPS cases. All 19 Python source/test files compiled, and `pip check` reported no broken requirements. On a machine without MPS, the three MPS cases are skipped. This verifies the tested training/evaluation paths; it does not validate real-data preprocessing, encoder downloads, CUDA execution, or the manuscript’s performance claims.
+
+### 8.2 Evaluation correction and older results
+
+The **2026-10-19 evaluation-mode correction** adds `model.eval()` before validation and final testing in every trainer. Previously, the SASRec-based models could retain active dropout while scoring. On the tested MPS runtime this raised `NotImplementedError: scaled_dot_product_attention for MPS does not support dropout`; on backends that accepted the operation, active dropout could change validation/test scores and best-checkpoint selection.
+
+Older metrics must not be treated as verified results of the corrected protocol. Re-run the headline and ablation experiments using the corrected code, then regenerate aggregates, tables, and figures. `--compare_only` and `--aggregate_only` merely combine saved CSV values; they do not fix historical evaluation or choose a new best checkpoint.
+
+### 8.3 Before publishing numerical results
+
+At this audit, no generated experiment CSVs, checkpoints, or run metadata were available in the checkout or tracked by Git. The included PDF is a draft; its numerical results have **not** been verified against a complete run of the corrected code.
+
+Before publication:
+
+1. Reconcile the protocol and manuscript: learned positional embeddings, actual MovieLens filtering, **15 default ablation configurations**, the temporal-metadata assumptions, and the repeated-held-out-item policy described in §2.6. Any protocol change requires corresponding result regeneration.
+2. Include the current trainers, evaluator, and `tests/test_training_modes.py` in the release commit. Run the checks above from that revision.
+3. Preserve earlier artifacts separately, then run the complete headline and ablation grids into clean output directories. Retain all per-seed histories, checkpoints, metrics, and metadata. Confirm every reported headline metric has `n=5` and every default ablation metric has `n=3`; do not infer completeness from a single summary or a zero standard deviation.
+4. Archive the exact code revision, installed dependencies, hardware/backend, dataset release identifiers/checksums, preprocessing flags and resulting counts, encoder revision, and embedding-cache provenance. `run_metadata.json` does not record all of these. Record an encoder revision separately because `--model_name` alone is not a version pin.
+5. Regenerate the tables/figures from those outputs and reconcile the PDF and presentation. Check headline Table 1/Figure 2 and ablation Table 2/Figure 3, sample-standard-deviation labels, seed counts, and the use of unadjusted paired tests. Review generated overview prose against actual run metadata before copying it into the paper.
+
+For example, record a minimal environment/code snapshot alongside a run (also archive any uncommitted/untracked source changes):
+
+```bash
+mkdir -p reproduction_metadata
+python --version > reproduction_metadata/python-version.txt
+python -m pip freeze > reproduction_metadata/installed-packages.txt
+git rev-parse HEAD > reproduction_metadata/source-commit.txt
+git status --short > reproduction_metadata/source-status.txt
+```
+
+These commands do not capture dataset checksums, encoder revisions, hardware details, or the contents of uncommitted files; preserve those with the experiment archive too.
+
+---
+
+## 9. Troubleshooting
+
+| Symptom | What to check |
+|---------|---------------|
+| `ModuleNotFoundError` for PyTorch, NumPy, or another dependency | Use the environment from §3 (`source venv/bin/activate` or `venv/bin/python`) and run `python -m pip check`. A fresh clone does not contain `venv/`. |
+| MPS error: `scaled_dot_product_attention ... does not support dropout` during evaluation | Ensure the trainers contain the evaluation-mode correction and run the regression suite. Custom scoring callers must call `model.eval()` before `evaluate_full_rank`; `torch.no_grad()` alone is insufficient. Do not disable training dropout to hide this evaluation bug. |
+| Yelp `FileNotFoundError` | Put review, business, and user JSON files directly under `data/yelp/`, or the corresponding directory under `--data_dir`. The archive is not downloaded by the loader. |
+| First semantic run is slow or encoder loading fails | The first run may download model weights and encode all profiles. Check connectivity/model access, available memory, and the selected encoder. Cached embeddings are reusable only with unchanged inputs (§4.4). |
+| Encoder/cache results look inconsistent after changing preprocessing | Use a fresh semantic `--cache_dir` or regenerate that dataset/encoder’s cache. Matching row counts alone do not establish matching user/item mappings. |
+| `unrecognized arguments: --model_name` | Plain SASRec has no encoder flag. For `run_everything.py`, use the two-stage example in §5.7 or invoke a semantic trainer directly. Arguments forwarded after `--` must be supported by every active trainer. |
+| Out-of-memory during loading or full-rank evaluation | Retained interactions and dense exclusion masks can dominate memory (§2.6). Training `--batch_size` does not control sequential evaluation batching. Only the LightGCN trainer exposes `--eval_batch_size`; reducing it reduces batched scores, not full exclusion masks. Changing filters changes the experiment and requires fresh cache/provenance. |
+| Missing models/seeds or no significance CSV | Check completed per-seed `test_metrics.csv` files and the selected seed list. Aggregation skips missing files. Paired tests need reference results and at least two shared seeds; `--skip` can remove a reference. |
+| `make_overview.py` reports no metrics | First finish training and aggregate the selected seeds. The generator reads per-model root metrics, not checkpoints or only the cross-model comparison CSV. Use `--artifacts_root` when those roots are elsewhere. |
+| Restarting a run does not resume from its checkpoint | Resume is not implemented. Training starts from epoch 1, and checkpoints contain model state without optimizer or RNG state. Archive old outputs before reusing their paths. |
