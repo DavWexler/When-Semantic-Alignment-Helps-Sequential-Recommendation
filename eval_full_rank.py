@@ -1,6 +1,6 @@
 """Shared full-rank leave-one-out evaluation.
 
-Used by all three models (SASRec, RLMRec+SASRec, RLMRec+LightGCN) so metrics
+Used by all three models (SASRec, SemanticSASRec, RLMRec+LightGCN) so metrics
 are directly comparable. Each model provides a `score_all_fn(inputs) ->
 (B, num_items+1)` callable; this module handles masking, ranking, and metric
 computation.

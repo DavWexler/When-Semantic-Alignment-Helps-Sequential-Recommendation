@@ -1,14 +1,14 @@
-"""Ablation study orchestrator for RLMRec+SASRec.
+"""Ablation study orchestrator for SemanticSASRec.
 
 For a paper-submission ablation grid: trains one variant at a time, each one
-flipping a single knob from the paper-faithful RLMRec+SASRec config (full
+flipping a single knob from the paper-faithful SemanticSASRec config (full
 losses on at lambda_u=lambda_i=0.1, tau=0.1, MLP projection heads, BGE-large
 semantic encoder). Variants run on every dataset (ML-1M, Yelp, Amazon-Books)
 across 3 seeds for 50 epochs by default.
 
 Variants
 --------
-RLMRec+SASRec (trainer: rlmrec_sasrec_train.py):
+SemanticSASRec (trainer: semantic_sasrec_train.py):
   sasrec_full              paper config; in-ablation reference for paired t-tests
   sasrec_no_user_align     lambda_user = 0
   sasrec_no_item_align     lambda_item = 0
@@ -92,7 +92,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 ABLATION_ROOT = Path("artifacts_ablation")
-SASREC_TRAINER = "rlmrec_sasrec_train.py"
+SASREC_TRAINER = "semantic_sasrec_train.py"
 LIGHTGCN_TRAINER = "rlmrec_lightgcn_train.py"
 
 DEFAULT_SEEDS = [42, 43, 44]
@@ -114,7 +114,7 @@ EXISTING_BASELINE_SEEDS = [42, 43, 44, 45, 46]
 EXISTING_BASELINES = [
     ("sasrec",          "SASRec (75ep, paper-faithful)"),
     ("rlmrec_lightgcn", "RLMRec+LightGCN (75ep, paper RLMRec)"),
-    ("rlmrec_sasrec",   "RLMRec+SASRec (75ep, our model)"),
+    ("semantic_sasrec",   "SemanticSASRec (75ep, our model)"),
 ]
 
 # Two-sided critical t-values, hard-coded so we can compute significance
@@ -146,7 +146,7 @@ def _variant(name: str, trainer: str, label: str, args: list[str],
 VARIANTS_CORE: list[dict] = [
     # SASRec ablations -----------------------------------------------------
     _variant("sasrec_full", SASREC_TRAINER,
-             "RLMRec+SASRec (full)", [], reference=None),
+             "SemanticSASRec (full)", [], reference=None),
     _variant("sasrec_no_user_align", SASREC_TRAINER,
              "no user-align (lambda_u=0)",
              ["--lambda_user", "0"], reference="sasrec_full"),
@@ -552,7 +552,7 @@ def write_markdown(dataset: str, variants_in_run: list[dict],
                   f"hard-coded two-sided critical t-table for df={df}")
 
     lines: list[str] = []
-    lines.append(f"# Ablation study - RLMRec+SASRec on {label}")
+    lines.append(f"# Ablation study - SemanticSASRec on {label}")
     lines.append("")
     lines.append(f"- {n_seeds} seeds (`{', '.join(str(s) for s in seeds)}`) "
                  f"x {epochs} epochs each")
@@ -609,13 +609,13 @@ def write_markdown(dataset: str, variants_in_run: list[dict],
         "sasrec_full", "sasrec_proj_linear",
         "sasrec_encoder_minilm", "sasrec_encoder_e5"})
 
-    _section("Loss-component ablation (RLMRec+SASRec)",
+    _section("Loss-component ablation (SemanticSASRec)",
              loss_block, ref_name="sasrec_full" if loss_block else None)
-    _section("Alignment-loss weight (lambda) sweep (RLMRec+SASRec)",
+    _section("Alignment-loss weight (lambda) sweep (SemanticSASRec)",
              lambda_block, ref_name="sasrec_full" if lambda_block else None)
-    _section("InfoNCE temperature (tau) sweep (RLMRec+SASRec)",
+    _section("InfoNCE temperature (tau) sweep (SemanticSASRec)",
              temp_block, ref_name="sasrec_full" if temp_block else None)
-    _section("Encoder + projection-head ablation (RLMRec+SASRec)",
+    _section("Encoder + projection-head ablation (SemanticSASRec)",
              arch_block, ref_name="sasrec_full" if arch_block else None)
     _section("RLMRec+LightGCN ablations",
              lightgcn_variants,
@@ -650,7 +650,7 @@ def write_markdown(dataset: str, variants_in_run: list[dict],
     lines.append("- All trained on the same dataset preprocessing, with "
                  "identical max sequence length and SASRec hyperparameters.")
     lines.append("- The `no align` variant zeros both alignment losses, "
-                 "reducing RLMRec+SASRec to the SASRec backbone alone "
+                 "reducing SemanticSASRec to the SASRec backbone alone "
                  "(at this epoch budget) - the gap between `no align` and "
                  "`full` isolates the contribution of RLMRec's contrastive "
                  "alignment on a sequential backbone.")
@@ -688,8 +688,8 @@ def main() -> None:
                    help=f"Validation cadence in epochs "
                         f"(default: {DEFAULT_EVAL_EVERY}).")
     p.add_argument("--include_e5_mistral", action="store_true",
-                   help="Add E5-Mistral-7B encoder variants for both "
-                        "RLMRec backbones (heavy first-time encode).")
+                   help="Add E5-Mistral-7B encoder variants for "
+                        "SemanticSASRec and RLMRec+LightGCN (heavy first-time encode).")
     p.add_argument("--aggregate_only", action="store_true",
                    help="Skip training; rebuild aggregates and overview "
                         "from existing per-seed CSVs.")

@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from eval_full_rank import K_VALUES, build_exclusion_mask, evaluate_full_rank
 from lightgcn_model import LightGCNRLMRec, build_norm_adjacency
 from rlmrec_data import load_ml1m_with_semantics
-from rlmrec_model import info_nce
+from semantic_sasrec_model import info_nce
 from sasrec_train import (DATASET_LABELS, pick_device, plot_all_val_metrics,
                           plot_loss, plot_test_metrics, plot_val_metric,
                           set_seed, write_history_csv)

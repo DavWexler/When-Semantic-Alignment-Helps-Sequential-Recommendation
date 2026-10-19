@@ -22,8 +22,8 @@ from pathlib import Path
 MODELS = [
     {"name": "sasrec", "label": "SASRec",
      "ckpt": "sasrec_best.pt"},
-    {"name": "rlmrec_sasrec", "label": "RLMRec+SASRec",
-     "ckpt": "rlmrec_sasrec_best.pt"},
+    {"name": "semantic_sasrec", "label": "SemanticSASRec",
+     "ckpt": "semantic_sasrec_best.pt"},
     {"name": "rlmrec_lightgcn", "label": "RLMRec+LightGCN",
      "ckpt": "rlmrec_lightgcn_best.pt"},
 ]
@@ -198,7 +198,7 @@ def _render_config_table(metas: dict[str, dict]) -> str:
         ("LR",               ["lr", "lr", "lr"]),
         ("Epochs (cap)",     ["epochs", "epochs", "epochs"]),
     ]
-    labels = ["SASRec", "RLMRec+SASRec", "RLMRec+LightGCN"]
+    labels = ["SASRec", "SemanticSASRec", "RLMRec+LightGCN"]
     header = "| Field            | " + " | ".join(f"{l:>15}" for l in labels) + " |"
     sep = "|------------------|" + "|".join(["-" * 17] * len(labels)) + "|"
     out_lines = [header, sep]
@@ -234,7 +234,7 @@ def _render_config_table(metas: dict[str, dict]) -> str:
     for label, key in [("λ_user / λ_item", "lambda_user"),
                        ("τ (InfoNCE)", "temperature")]:
         cells = [f"{'—':>15}"]
-        for ml_label in ["RLMRec+SASRec", "RLMRec+LightGCN"]:
+        for ml_label in ["SemanticSASRec", "RLMRec+LightGCN"]:
             meta = metas.get(ml_label, {})
             args = meta.get("args", {}) if meta else {}
             if label == "λ_user / λ_item":
@@ -257,7 +257,7 @@ def _build_runtime_facts(metas: dict[str, dict]) -> dict:
     facts["num_users"] = sasrec.get("num_users")
     facts["num_items"] = sasrec.get("num_items")
     facts["dataset_args"] = sasrec.get("args", {})
-    enc_meta = metas.get("RLMRec+LightGCN") or metas.get("RLMRec+SASRec") or {}
+    enc_meta = metas.get("RLMRec+LightGCN") or metas.get("SemanticSASRec") or {}
     facts["semantic_model"] = enc_meta.get("semantic_model", "unknown")
     facts["semantic_dim"] = enc_meta.get("semantic_dim", "?")
     return facts
@@ -361,7 +361,7 @@ Recall@K = HR@K when there's a single positive, which IS our case).
   paper's defaults, modulo our 64 vs. 32 embedding dim — a minor difference
   documented in the run_metadata.
 
-### RLMRec+SASRec on Amazon-Books
+### SemanticSASRec on Amazon-Books
 
 This combination is **not in the original RLMRec paper** (the paper studies
 CF-graph backbones: GCCF, LightGCN, SGL, SimGCL, DCCF, AutoCF). It's a
@@ -430,7 +430,7 @@ makes Recall@K = HR@K when there's a single positive, which IS our case).
   paper's defaults, modulo our 64 vs. 32 embedding dim — a minor difference
   documented in the run_metadata.
 
-### RLMRec+SASRec on Yelp
+### SemanticSASRec on Yelp
 
 This combination is **not in the original RLMRec paper** (the paper studies
 CF-graph backbones: GCCF, LightGCN, SGL, SimGCL, DCCF, AutoCF). It's a
@@ -472,7 +472,7 @@ across our three models).
 
 RLMRec **does not include ML-1M** in its benchmark suite (the paper
 evaluates on Amazon-Books, Yelp, and Steam). There is no paper baseline
-for either RLMRec+LightGCN or RLMRec+SASRec on this dataset. The most
+for either RLMRec+LightGCN or SemanticSASRec on this dataset. The most
 useful comparison is therefore the within-project one in §1: does adding
 the InfoNCE alignment loss to SASRec help, hurt, or no-op on ML-1M?
 
@@ -480,7 +480,7 @@ The Yelp overview (`artifacts_yelp/comparison/results_overview.md`) does
 include a direct paper-baseline comparison for the LightGCN row, since
 RLMRec's published Yelp numbers exist.
 
-### RLMRec+SASRec on MovieLens-1M
+### SemanticSASRec on MovieLens-1M
 
 Same caveat as above — not in the paper. The RLMRec authors only studied
 CF-graph backbones (GCCF, LightGCN, SGL, SimGCL, DCCF, AutoCF). This row
@@ -506,7 +506,7 @@ def render_overview(dataset: str,
     sem_dim = facts.get("semantic_dim", "?")
 
     sasrec = per_model.get("SASRec", {})
-    rls = per_model.get("RLMRec+SASRec", {})
+    rls = per_model.get("SemanticSASRec", {})
     rll = per_model.get("RLMRec+LightGCN", {})
 
     def head_to_head(a: dict[str, float], b: dict[str, float]) -> dict[str, str]:
@@ -520,7 +520,7 @@ def render_overview(dataset: str,
     rll_vs_sas = head_to_head(sasrec, rll)
 
     metric_table = _render_metric_table(
-        {"SASRec": sasrec, "RLMRec+SASRec": rls, "RLMRec+LightGCN": rll},
+        {"SASRec": sasrec, "SemanticSASRec": rls, "RLMRec+LightGCN": rll},
         per_model_agg=per_model_agg,
     )
     config_table = _render_config_table(metas)
@@ -539,7 +539,7 @@ Metrics: HR@K and NDCG@K for K ∈ {{1, 5, 10, 20}}, plus MRR
 All three models share the same data splits and the same evaluator
 (`eval_full_rank.py`), so the test numbers below are directly comparable.
 
-Profile texts encoded into RLMRec's semantic side: {cfg['profile_source']},
+Profile texts encoded for SemanticSASRec and RLMRec+LightGCN: {cfg['profile_source']},
 encoded with **{sem_model}** ({sem_dim}-d).
 
 ---
@@ -554,20 +554,20 @@ Bold = best per row. Source: `{art}/comparison/comparison.csv`.
 
 {config_table}
 
-Sources: `{art}/{{sasrec,rlmrec_sasrec,rlmrec_lightgcn}}/run_metadata.json`.
+Sources: `{art}/{{sasrec,semantic_sasrec,rlmrec_lightgcn}}/run_metadata.json`.
 
 ---
 
 ## 2. Head-to-head observations
 
-### SASRec vs. RLMRec+SASRec (semantic alignment regularizer added)
+### SASRec vs. SemanticSASRec (semantic alignment regularizer added)
 """
     if rls_vs_sas:
         ndcg10 = rls_vs_sas.get("NDCG@10", "n/a")
         hr10 = rls_vs_sas.get("HR@10", "n/a")
         hr20 = rls_vs_sas.get("HR@20", "n/a")
         md += (
-            f"- RLMRec+SASRec retains {ndcg10} of SASRec's NDCG@10 "
+            f"- SemanticSASRec retains {ndcg10} of SASRec's NDCG@10 "
             f"({_fmt(rls.get('NDCG@10'))} vs. {_fmt(sasrec.get('NDCG@10'))}), "
             f"{hr10} of HR@10 ({_fmt(rls.get('HR@10'))} vs. {_fmt(sasrec.get('HR@10'))}), "
             f"and {hr20} of HR@20 ({_fmt(rls.get('HR@20'))} vs. {_fmt(sasrec.get('HR@20'))}).\n"
@@ -676,7 +676,7 @@ RLMRec hypothesis lives in the Yelp / Amazon-Books overviews, not this one.
 - **Approximated profiles**: templated user/item text is a weaker signal
   than the LLM-generated profiles used by the RLMRec paper. The paper's
   reported gains explicitly depend on richer profile text.
-- **Hyperparameters were not tuned** for the RLMRec variants — λ, τ, and
+- **Hyperparameters were not tuned** for SemanticSASRec and RLMRec+LightGCN — λ, τ, and
   dim were taken from sensible defaults rather than swept.
 - **Best-checkpoint selection on val NDCG@10**: epochs at peak val are in
   the run_metadata; if a run is still rising at the cap, it had headroom.
@@ -691,10 +691,10 @@ RLMRec hypothesis lives in the Yelp / Amazon-Books overviews, not this one.
 - `{art}/comparison/comparison_bars.png` — bar chart with ±std error bars
 - `{art}/comparison/val_NDCG@10_curves.png` — validation NDCG@10 mean curve + ±1σ band per model
 - `{art}/comparison/summary.txt` — formatted aggregate + per-seed tables
-- `{art}/{{sasrec,rlmrec_sasrec,rlmrec_lightgcn}}/seed_<N>/` — full per-seed training artifacts (history, plots, checkpoint)
-- `{art}/{{sasrec,rlmrec_sasrec,rlmrec_lightgcn}}/test_metrics_per_seed.csv` — per-model per-seed metrics
-- `{art}/{{sasrec,rlmrec_sasrec,rlmrec_lightgcn}}/test_metrics_aggregate.csv` — per-model mean / std / n
-- `{art}/{{sasrec,rlmrec_sasrec,rlmrec_lightgcn}}/run_metadata.json` — hyperparameters (copied from one representative seed)
+- `{art}/{{sasrec,semantic_sasrec,rlmrec_lightgcn}}/seed_<N>/` — full per-seed training artifacts (history, plots, checkpoint)
+- `{art}/{{sasrec,semantic_sasrec,rlmrec_lightgcn}}/test_metrics_per_seed.csv` — per-model per-seed metrics
+- `{art}/{{sasrec,semantic_sasrec,rlmrec_lightgcn}}/test_metrics_aggregate.csv` — per-model mean / std / n
+- `{art}/{{sasrec,semantic_sasrec,rlmrec_lightgcn}}/run_metadata.json` — hyperparameters (copied from one representative seed)
 """
     return md
 

@@ -3,7 +3,7 @@
 Models (runs in this order):
   1. sasrec       — pure SASRec (paper-faithful)
   2. rlmrec_lightgcn — RLMRec-Con with a LightGCN backbone (paper-faithful RLMRec)
-  3. rlmrec_sasrec   — RLMRec-Con with a SASRec backbone (hypothesis test)
+  3. semantic_sasrec — SemanticSASRec: SASRec with semantic alignment (hypothesis test)
 
 For each model and each seed, this orchestrator:
   - invokes the training script as a subprocess (streaming its stdout) into
@@ -49,10 +49,10 @@ MODELS = [
         "out_dir": "artifacts/rlmrec_lightgcn",
     },
     {
-        "name": "rlmrec_sasrec",
-        "label": "RLMRec+SASRec",
-        "script": "rlmrec_sasrec_train.py",
-        "out_dir": "artifacts/rlmrec_sasrec",
+        "name": "semantic_sasrec",
+        "label": "SemanticSASRec",
+        "script": "semantic_sasrec_train.py",
+        "out_dir": "artifacts/semantic_sasrec",
     },
 ]
 
@@ -101,7 +101,7 @@ def consolidate_model_outputs(model_out_dir: Path, seeds: list[int]
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Train/test SASRec, RLMRec+LightGCN, RLMRec+SASRec across "
+        description="Train/test SASRec, RLMRec+LightGCN, SemanticSASRec across "
                     "multiple seeds.")
     parser.add_argument("--skip", nargs="*", default=[],
                         choices=[m["name"] for m in MODELS],

@@ -37,7 +37,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 │   └── SemanticSASRec.pptx                  ← Presentation as an overview of the Research Paper
 │ 
 ├── sasrec_model.py                          ← SASRec architecture
-├── rlmrec_model.py                          ← SemanticSASRec wrapper + InfoNCE
+├── semantic_sasrec_model.py                 ← SemanticSASRec wrapper + InfoNCE
 ├── lightgcn_model.py                        ← LightGCN + LightGCNRLMRec wrapper
 │
 ├── sasrec_data.py                           ← MovieLens-1M loader (auto-download)
@@ -47,7 +47,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 ├── eval_full_rank.py                        ← shared full-rank LOO evaluator
 │
 ├── sasrec_train.py                          ← train pure SASRec
-├── rlmrec_sasrec_train.py                   ← train SemanticSASRec
+├── semantic_sasrec_train.py                 ← train SemanticSASRec
 ├── rlmrec_lightgcn_train.py                 ← train RLMRec+LightGCN
 │
 ├── seed_aggregation.py                      ← multi-seed aggregation helpers
@@ -68,7 +68,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 | File | Purpose |
 |------|---------|
 | `sasrec_model.py` | Implements `SASRec`: an item-embedding table, sinusoidal-position-add, N causal self-attention blocks, and a final-position dot-product head. Exposes `forward(input_seq, pos_seq, neg_seq)` for BCE-style training and `score_all_items(input_seq) -> (B, num_items+1)` for full-rank scoring. Defaults match the paper (`hidden=50, blocks=2, heads=1, dropout=0.2, max_len=200`). |
-| `rlmrec_model.py` | Defines `ProjectionHead` (linear or 2-layer GELU MLP), `RLMRecSASRec` (wraps `SASRec` with two `ProjectionHead`s, one for user-state and one for item-embedding), and `info_nce(projected, target, temperature)` — symmetric cross-entropy on cosine-similarity logits. This is the InfoNCE alignment loss that ties CF embeddings to the frozen sentence-transformer space. |
+| `semantic_sasrec_model.py` | Defines `ProjectionHead` (linear or 2-layer GELU MLP), `SemanticSASRec` (wraps `SASRec` with two `ProjectionHead`s, one for user-state and one for item-embedding), and `info_nce(projected, target, temperature)` — symmetric cross-entropy on cosine-similarity logits. This is the InfoNCE alignment loss that ties CF embeddings to the frozen sentence-transformer space. |
 | `lightgcn_model.py` | Implements `LightGCN` (He et al., 2020) using edge-based `index_add_` propagation (works on MPS without sparse matmul), `LightGCNRLMRec` (wraps `LightGCN` with the same `ProjectionHead`s), and `build_norm_adjacency(...)` which constructs the symmetric-normalized bipartite adjacency. |
 
 ### 2.2 Data + preprocessing modules
@@ -78,7 +78,7 @@ All three dataset modules share the same interface: `load_<ds>_with_semantics(da
 | File | Purpose |
 |------|---------|
 | `sasrec_data.py` | MovieLens-1M loader: `download_ml1m` (auto-fetches the zip from `files.grouplens.org`), `build_sequences` (5-core implicit, sorts by timestamp, remaps to 1-indexed IDs), `split_sequences` (leave-one-out), `SASRecTrainDataset` (yields `(input_seq, pos_seq, neg_seq)` for BCE), and `build_eval_inputs`. |
-| `yelp_data.py` | Yelp Open Dataset loader. **Manual download** is required (Yelp's TOS). Streams the ~5 GB review JSON, filters by `start_year`, applies iterative k-core (`min_inter` default 5), builds business + user profile texts from metadata, encodes them with a frozen sentence-transformer, and caches the result as `.npy`. Function `load_yelp_with_semantics` is the one-stop loader used by both RLMRec training scripts. |
+| `yelp_data.py` | Yelp Open Dataset loader. **Manual download** is required (Yelp's TOS). Streams the ~5 GB review JSON, filters by `start_year`, applies iterative k-core (`min_inter` default 5), builds business + user profile texts from metadata, encodes them with a frozen sentence-transformer, and caches the result as `.npy`. Function `load_yelp_with_semantics` is the one-stop loader used by the SemanticSASRec and RLMRec+LightGCN training scripts. |
 | `amazon_data.py` | Amazon Reviews 2023 (McAuley Lab) loader. **Auto-downloads** the gzipped review and metadata JSONL for one category (default `Books` — chosen because it carries the richest per-item text and matches the RLMRec paper's Amazon-Books benchmark). Same preprocessing recipe as Yelp (start-year + iterative k-core). |
 | `rlmrec_data.py` | ML-1M-specific semantic-profile builder. Constructs item texts as `"Title (Year). Genres: A, B, C."` and user texts as `"A <age> <gender> <occupation> who enjoys <top genres>. Recently watched: <recent titles>."`. Encodes them with `sentence-transformers` and caches the result. |
 | `eval_full_rank.py` | Shared full-rank leave-one-out evaluator. Computes HR@K and NDCG@K for K ∈ {1, 5, 10, 20} plus MRR. Used identically by all three trainers, so headline numbers are directly comparable. `build_exclusion_mask` masks each user's training history (and val item, for test) so we never score against an item the model has already seen. |
@@ -88,7 +88,7 @@ All three dataset modules share the same interface: `load_<ds>_with_semantics(da
 | File | Purpose |
 |------|---------|
 | `sasrec_train.py` | End-to-end pure-SASRec trainer. BCE-with-logits loss; auto-picks CUDA → MPS → CPU; selects the best epoch by val NDCG@10; writes `<out_dir>/{train_history.csv, sasrec_best.pt, test_metrics.csv, run_metadata.json, *.png}`. Supports `--dataset {ml1m,yelp,amazon}`. |
-| `rlmrec_sasrec_train.py` | RLMRec+SASRec trainer. Same SASRec backbone, plus two InfoNCE alignment heads at every batch. Loss is `cf_loss + λ_user · user_align + λ_item · item_align`. |
+| `semantic_sasrec_train.py` | SemanticSASRec trainer. Same SASRec backbone, plus two InfoNCE alignment heads at every batch. Loss is `cf_loss + λ_user · user_align + λ_item · item_align`. |
 | `rlmrec_lightgcn_train.py` | RLMRec+LightGCN trainer (paper-faithful RLMRec). BPR ranking loss + L2 reg on layer-0 embeddings + two InfoNCE heads, identical loss schema to the SASRec variant. |
 
 ### 2.4 Orchestration / aggregation
@@ -100,7 +100,7 @@ All three dataset modules share the same interface: `load_<ds>_with_semantics(da
 | `run_all_yelp.py` | Same as `run_all.py`, but writes to `artifacts_yelp/` and forwards `--dataset yelp`. Adds Yelp-specific filter flags. |
 | `run_all_amazon.py` | Same as `run_all.py`, but writes to `artifacts_amazon/` and forwards `--dataset amazon`. Adds Amazon-specific filter and category flags. |
 | `run_everything.py` | Top-level: invokes `run_all.py`, `run_all_yelp.py`, `run_all_amazon.py`, then `make_overview.py` for each dataset. This is the one-shot reproduction entrypoint. |
-| `run_ablations.py` | Separate ablation orchestrator for the RLMRec+SASRec ablation grid (λ sweep, τ sweep, MLP-vs-linear projection head, MiniLM-vs-BGE encoder, loss-component flips, plus optional E5-Mistral-7B). 50 epochs × 3 seeds × N variants × 3 datasets by default. Uses paired t-tests against an in-ablation reference variant (`sasrec_full` / `lightgcn_full`). |
+| `run_ablations.py` | Separate ablation orchestrator for the SemanticSASRec ablation grid (λ sweep, τ sweep, MLP-vs-linear projection head, MiniLM-vs-BGE encoder, loss-component flips, plus optional E5-Mistral-7B). 50 epochs × 3 seeds × N variants × 3 datasets by default. Uses paired t-tests against an in-ablation reference variant (`sasrec_full` / `lightgcn_full`). |
 | `make_overview.py` | Reads the comparison CSVs and per-model `run_metadata.json` for one dataset and renders `<artifacts_root>/comparison/results_overview.md` with the headline table, run-config table, head-to-head observations, and a dataset-specific paper-comparison section. |
 
 ---
@@ -254,7 +254,7 @@ If you delete these `.npy` files, the next training run will regenerate them —
 
 ### 5.1 One command (the full grid)
 
-The simplest path — train SASRec, RLMRec+LightGCN, and RLMRec+SASRec on all three datasets, with the paper's default settings (5 seeds × 75 epochs):
+The simplest path — train SASRec, RLMRec+LightGCN, and SemanticSASRec on all three datasets, with the paper's default settings (5 seeds × 75 epochs):
 
 ```bash
 source venv/bin/activate
@@ -295,8 +295,8 @@ python run_all_amazon.py     # Amazon-Books
 If you only want to sanity-check one variant:
 
 ```bash
-python sasrec_train.py            --dataset ml1m   --seed 42 --out_dir artifacts/sasrec/seed_42
-python rlmrec_sasrec_train.py     --dataset yelp   --seed 42 --out_dir artifacts_yelp/rlmrec_sasrec/seed_42
+python sasrec_train.py           --dataset ml1m   --seed 42 --out_dir artifacts/sasrec/seed_42
+python semantic_sasrec_train.py  --dataset yelp   --seed 42 --out_dir artifacts_yelp/semantic_sasrec/seed_42
 python rlmrec_lightgcn_train.py   --dataset amazon --seed 42 --out_dir artifacts_amazon/rlmrec_lightgcn/seed_42
 ```
 
@@ -381,14 +381,14 @@ Pure SASRec trainer.
 | `--amazon_min_inter` | int | `5` | K for Amazon k-core filter. |
 | `--amazon_category` | str | `Books` | Amazon Reviews 2023 category. |
 
-### 6.2 `rlmrec_sasrec_train.py`
+### 6.2 `semantic_sasrec_train.py`
 
 Same flags as `sasrec_train.py`, **plus**:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--cache_dir` | str | `data/semantic_cache` | Where to cache the `.npy` profile embeddings. |
-| `--out_dir` | str | `artifacts/rlmrec_sasrec` | (Default differs from `sasrec_train.py`.) |
+| `--out_dir` | str | `artifacts/semantic_sasrec` | (Default differs from `sasrec_train.py`.) |
 | `--model_name` | str | `BAAI/bge-large-en-v1.5` | Sentence-transformer / HF model used to encode user & item profile texts. |
 | `--lambda_item` | float | `0.1` | Weight on the item-alignment InfoNCE loss. |
 | `--lambda_user` | float | `0.1` | Weight on the user-alignment InfoNCE loss. |
@@ -424,7 +424,7 @@ Same flags as `sasrec_train.py`, **plus**:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--skip` | list | `[]` | Models to skip; one or more of `sasrec`, `rlmrec_lightgcn`, `rlmrec_sasrec`. |
+| `--skip` | list | `[]` | Models to skip; one or more of `sasrec`, `rlmrec_lightgcn`, `semantic_sasrec`. |
 | `--compare_only` | bool | `False` | Skip training; only re-aggregate existing per-seed CSVs. |
 | `--compare_dir` | str | `artifacts/comparison` | Where to write the comparison files. |
 | `--epochs` | int | _(trainer default 75)_ | Override `--epochs` for every training subprocess. |
@@ -448,7 +448,7 @@ Same flags as `sasrec_train.py`, **plus**:
 | `--eval_every` | int | _(trainer default)_ | Validation cadence for every training run. |
 | `--seeds` | int+ | _(runner default `42 43 44 45 46`)_ | Seeds for every training run. |
 | `--seed` | int | _none_ | Single-seed legacy alias. |
-| `--model_name` | str | _(trainer default BGE-large)_ | Sentence-transformer encoder name (only affects RLMRec runs). |
+| `--model_name` | str | _(trainer default BGE-large)_ | Sentence-transformer encoder name (only affects SemanticSASRec and RLMRec+LightGCN runs). |
 | `--yelp_start_year` / `--yelp_min_inter` | int | _(trainer default)_ | Yelp filter knobs. |
 | `--amazon_start_year` / `--amazon_min_inter` / `--amazon_category` | int / int / str | _(trainer default)_ | Amazon filter knobs. |
 
@@ -502,7 +502,7 @@ artifacts/                                 ← ML-1M
 │   ├── test_metrics_per_seed.csv          ← rows: seed, cols: metrics
 │   ├── test_metrics_aggregate.csv         ← rows: metric, cols: mean,std,n
 │   └── run_metadata.json                  ← copied from one representative seed
-├── rlmrec_sasrec/                         ← same layout as sasrec/
+├── semantic_sasrec/                       ← same layout (checkpoint: semantic_sasrec_best.pt)
 ├── rlmrec_lightgcn/                       ← same layout (checkpoints: rlmrec_lightgcn_best.pt)
 └── comparison/
     ├── comparison.csv                     ← metric × model (mean only)
