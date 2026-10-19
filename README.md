@@ -1,12 +1,13 @@
 # Bringing Language-Model Semantics into Sequential Recommendation
 
-A reproducible reference implementation for the paper *Bringing Language-Model Semantics into Sequential Recommendation: A Contrastive Alignment Bridge Between SASRec and RLMRec*.
+A reproducible reference implementation for the paper *When Semantic Alignment Helps Sequential
+Recommendation*.
 
 The research question is simple: **RLMRec's contrastive semantic-alignment recipe was published on graph-CF backbones (LightGCN, SGL, SimGCL, DCCF, etc.). Does that same recipe transfer to a sequential SASRec backbone?** To answer it we train three models head-to-head on the same data splits and evaluator:
 
 1. **SASRec** — paper-faithful baseline (Kang & McAuley, ICDM 2018).
 2. **RLMRec+LightGCN** — paper-faithful RLMRec-Con reproduction (Ren et al., WWW 2024).
-3. **RLMRec+SASRec** — project-specific extension: SASRec backbone with RLMRec's two InfoNCE alignment heads (user-state ↔ user-profile-text, item-embedding ↔ item-profile-text). Not in the original RLMRec paper.
+3. **SemanticSASRec** — project-specific extension: SASRec backbone with RLMRec's two InfoNCE alignment heads (user-state ↔ user-profile-text, item-embedding ↔ item-profile-text). Not in the original RLMRec paper.
 
 All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amazon-Books** (Reviews 2023), under a strict full-rank leave-one-out protocol.
 
@@ -31,11 +32,12 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 <CURRENT_DIRECTORY>/
 ├── README.md                                ← this file
 │
-├── Paper Presentation/
+├── Paper/
+│   ├── SemanticSASRec.pdf 					 ← Draft of the Research Paper
 │   └── SemanticSASRec.pptx                  ← Presentation as an overview of the Research Paper
 │ 
 ├── sasrec_model.py                          ← SASRec architecture
-├── rlmrec_model.py                          ← RLMRecSASRec wrapper + InfoNCE
+├── rlmrec_model.py                          ← SemanticSASRec wrapper + InfoNCE
 ├── lightgcn_model.py                        ← LightGCN + LightGCNRLMRec wrapper
 │
 ├── sasrec_data.py                           ← MovieLens-1M loader (auto-download)
@@ -45,7 +47,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 ├── eval_full_rank.py                        ← shared full-rank LOO evaluator
 │
 ├── sasrec_train.py                          ← train pure SASRec
-├── rlmrec_sasrec_train.py                   ← train RLMRec+SASRec
+├── rlmrec_sasrec_train.py                   ← train SemanticSASRec
 ├── rlmrec_lightgcn_train.py                 ← train RLMRec+LightGCN
 │
 ├── seed_aggregation.py                      ← multi-seed aggregation helpers
@@ -53,7 +55,7 @@ All three are evaluated on **MovieLens-1M**, **Yelp** (Open Dataset), and **Amaz
 ├── run_all_yelp.py                          ← orchestrator: Yelp,   3 models × N seeds
 ├── run_all_amazon.py                        ← orchestrator: Amazon, 3 models × N seeds
 ├── run_everything.py                        ← top-level: runs all three orchestrators + make_overview
-├── run_ablations.py                         ← ablation grid for RLMRec+SASRec (and RLMRec+LightGCN)
+├── run_ablations.py                         ← ablation grid for SemanticSASRec (and RLMRec+LightGCN)
 └── make_overview.py                         ← generate per-dataset results_overview.md
 ```
 
