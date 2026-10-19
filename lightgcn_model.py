@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from semantic_sasrec_model import ProjectionHead
+from rlmrec_model import ProjectionHead
 
 
 class LightGCN(nn.Module):

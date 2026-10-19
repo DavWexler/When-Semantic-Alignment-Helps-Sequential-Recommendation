@@ -263,7 +263,6 @@ def main() -> None:
 
         do_eval = (epoch % args.eval_every == 0) or (epoch == args.epochs)
         if do_eval:
-            model.eval()
             val_metrics = evaluate_full_rank(
                 model.score_all_items, val_inputs, val_tgt, val_mask, device)
             for k, v in val_metrics.items():
@@ -301,7 +300,6 @@ def main() -> None:
               f"(val NDCG@10={best_val_ndcg:.4f})")
         model.load_state_dict(torch.load(out_dir / "sasrec_best.pt",
                                          map_location=device))
-    model.eval()
     test_metrics = evaluate_full_rank(
         model.score_all_items, test_inputs, test_tgt, test_mask, device)
     print("Test metrics:")

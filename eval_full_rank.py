@@ -1,6 +1,6 @@
 """Shared full-rank leave-one-out evaluation.
 
-Used by all three models (SASRec, SemanticSASRec, RLMRec+LightGCN) so metrics
+Used by all three models (SASRec, RLMRec+SASRec, RLMRec+LightGCN) so metrics
 are directly comparable. Each model provides a `score_all_fn(inputs) ->
 (B, num_items+1)` callable; this module handles masking, ranking, and metric
 computation.
@@ -51,11 +51,7 @@ def evaluate_full_rank(
     device: torch.device,
     batch_size: int = 256,
 ) -> dict[str, float]:
-    """Score every item for every eval user and compute HR@K / NDCG@K / MRR.
-
-    Callers must put the model in eval mode before passing its scoring
-    function; disabling gradients here does not disable dropout.
-    """
+    """Score every item for every eval user and compute HR@K / NDCG@K / MRR."""
     n = inputs.size(0)
     ranks = np.empty(n, dtype=np.int64)
     with torch.no_grad():

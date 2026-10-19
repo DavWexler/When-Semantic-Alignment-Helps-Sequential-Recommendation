@@ -1,4 +1,4 @@
-"""SemanticSASRec: semantic alignment on a SASRec backbone.
+"""RLMRec-Con on a SASRec backbone.
 
 Two projection heads map CF embeddings (item and user) into the semantic
 space produced by a frozen sentence transformer. InfoNCE alignment
@@ -34,7 +34,7 @@ class ProjectionHead(nn.Module):
         return self.net(x)
 
 
-class SemanticSASRec(nn.Module):
+class RLMRecSASRec(nn.Module):
     def __init__(self, num_items: int, semantic_dim: int, *,
                  max_len: int = 200, hidden_units: int = 50, num_blocks: int = 2,
                  num_heads: int = 1, dropout: float = 0.2,

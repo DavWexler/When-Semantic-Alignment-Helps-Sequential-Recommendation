@@ -1,4 +1,4 @@
-"""End-to-end SemanticSASRec training on MovieLens-1M, Yelp, or Amazon.
+"""End-to-end RLMRec-Con training with a SASRec backbone on MovieLens-1M.
 
 Same history / metrics / plots as pure SASRec, plus alignment-loss components.
 Evaluation uses the shared full-rank protocol.
@@ -25,7 +25,7 @@ from sasrec_train import (DATASET_LABELS, bce_with_logits_masked, pick_device,
 from amazon_data import load_amazon_with_semantics
 import amazon_data
 from rlmrec_data import load_ml1m_with_semantics
-from semantic_sasrec_model import SemanticSASRec, info_nce
+from rlmrec_model import RLMRecSASRec, info_nce
 from yelp_data import load_yelp_with_semantics
 
 
@@ -43,7 +43,7 @@ def plot_loss_components(history: list[dict], out_path: Path,
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     label = DATASET_LABELS.get(dataset, dataset)
-    plt.title(f"SemanticSASRec loss components — {label}")
+    plt.title(f"RLMRec loss components — {label}")
     plt.grid(alpha=0.3)
     plt.legend(loc="best", fontsize=9)
     plt.tight_layout()
@@ -52,7 +52,7 @@ def plot_loss_components(history: list[dict], out_path: Path,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train and evaluate SemanticSASRec.")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=75)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--max_len", type=int, default=200)
@@ -67,7 +67,7 @@ def main() -> None:
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--cache_dir", type=str, default="data/semantic_cache")
-    parser.add_argument("--out_dir", type=str, default="artifacts/semantic_sasrec")
+    parser.add_argument("--out_dir", type=str, default="artifacts/rlmrec_sasrec")
     parser.add_argument("--model_name", type=str,
                         default="BAAI/bge-large-en-v1.5",
                         help="HF / sentence-transformers model used to encode "
@@ -144,13 +144,13 @@ def main() -> None:
     print(f"Val users: {len(val_users)} | Test users: {len(test_users)} | "
           f"semantic dim: {sem_dim} | full-rank over {num_items} items")
 
-    model = SemanticSASRec(num_items=num_items, semantic_dim=sem_dim,
-                          max_len=args.max_len, hidden_units=args.hidden,
-                          num_blocks=args.blocks, num_heads=args.heads,
-                          dropout=args.dropout,
-                          proj_head=args.proj_head).to(device)
+    model = RLMRecSASRec(num_items=num_items, semantic_dim=sem_dim,
+                         max_len=args.max_len, hidden_units=args.hidden,
+                         num_blocks=args.blocks, num_heads=args.heads,
+                         dropout=args.dropout,
+                         proj_head=args.proj_head).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"Model params (SemanticSASRec): {n_params:,}")
+    print(f"Model params (SASRec+projection heads): {n_params:,}")
     optim = torch.optim.Adam(model.parameters(), lr=args.lr,
                              betas=(0.9, 0.98), weight_decay=args.l2)
 
@@ -226,7 +226,6 @@ def main() -> None:
 
         do_eval = (epoch % args.eval_every == 0) or (epoch == args.epochs)
         if do_eval:
-            model.eval()
             val_metrics = evaluate_full_rank(
                 model.score_all_items, val_inputs, val_tgt, val_mask, device)
             for k, v in val_metrics.items():
@@ -234,7 +233,7 @@ def main() -> None:
             if val_metrics["NDCG@10"] > best_val_ndcg:
                 best_val_ndcg = val_metrics["NDCG@10"]
                 best_epoch = epoch
-                torch.save(model.state_dict(), out_dir / "semantic_sasrec_best.pt")
+                torch.save(model.state_dict(), out_dir / "rlmrec_sasrec_best.pt")
 
         history.append(row)
         msg = (f"epoch {epoch:>3} | loss {row['train_loss']:.4f} "
@@ -265,9 +264,8 @@ def main() -> None:
     if best_epoch > 0:
         print(f"Loading best checkpoint from epoch {best_epoch} "
               f"(val NDCG@10={best_val_ndcg:.4f})")
-        model.load_state_dict(torch.load(out_dir / "semantic_sasrec_best.pt",
+        model.load_state_dict(torch.load(out_dir / "rlmrec_sasrec_best.pt",
                                          map_location=device))
-    model.eval()
     test_metrics = evaluate_full_rank(
         model.score_all_items, test_inputs, test_tgt, test_mask, device)
     print("Test metrics:")

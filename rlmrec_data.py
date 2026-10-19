@@ -1,4 +1,4 @@
-"""Shared semantic-profile data utilities for SemanticSASRec and RLMRec+LightGCN.
+"""RLMRec data utilities.
 
 Reuses SASRec's MovieLens-1M pipeline, then builds natural-language profiles
 for items (title + genres) and users (demographics + genre summary + recent
@@ -188,7 +188,7 @@ def prepare_semantic_embeddings(data_dir: Path, cache_dir: Path,
 
 def load_ml1m_with_semantics(data_dir: Path, cache_dir: Path, model_name: str,
                              device: str):
-    """One-stop loader used by the SemanticSASRec and RLMRec+LightGCN trainers."""
+    """One-stop loader used by both RLMRec training scripts."""
     from sasrec_data import build_sequences, split_sequences
 
     ratings_path = download_ml1m(data_dir)

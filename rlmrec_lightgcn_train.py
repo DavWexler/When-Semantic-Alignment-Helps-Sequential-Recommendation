@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from eval_full_rank import K_VALUES, build_exclusion_mask, evaluate_full_rank
 from lightgcn_model import LightGCNRLMRec, build_norm_adjacency
 from rlmrec_data import load_ml1m_with_semantics
-from semantic_sasrec_model import info_nce
+from rlmrec_model import info_nce
 from sasrec_train import (DATASET_LABELS, pick_device, plot_all_val_metrics,
                           plot_loss, plot_test_metrics, plot_val_metric,
                           set_seed, write_history_csv)
@@ -242,7 +242,6 @@ def main() -> None:
 
         do_eval = (epoch % args.eval_every == 0) or (epoch == args.epochs)
         if do_eval:
-            model.eval()
             val_metrics = evaluate_full_rank(
                 model.score_all_items, val_inputs, val_tgt, val_mask, device,
                 batch_size=args.eval_batch_size)
@@ -286,7 +285,6 @@ def main() -> None:
               f"(val NDCG@10={best_val_ndcg:.4f})")
         model.load_state_dict(
             torch.load(out_dir / "rlmrec_lightgcn_best.pt", map_location=device))
-    model.eval()
     test_metrics = evaluate_full_rank(
         model.score_all_items, test_inputs, test_tgt, test_mask, device,
         batch_size=args.eval_batch_size)

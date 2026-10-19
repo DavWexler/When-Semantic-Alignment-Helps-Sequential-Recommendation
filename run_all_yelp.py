@@ -40,10 +40,10 @@ MODELS = [
         "out_dir": "artifacts_yelp/rlmrec_lightgcn",
     },
     {
-        "name": "semantic_sasrec",
-        "label": "SemanticSASRec",
-        "script": "semantic_sasrec_train.py",
-        "out_dir": "artifacts_yelp/semantic_sasrec",
+        "name": "rlmrec_sasrec",
+        "label": "RLMRec+SASRec",
+        "script": "rlmrec_sasrec_train.py",
+        "out_dir": "artifacts_yelp/rlmrec_sasrec",
     },
 ]
 
@@ -83,7 +83,7 @@ def consolidate_model_outputs(model_out_dir: Path, seeds: list[int]
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Train/test SASRec, RLMRec+LightGCN, SemanticSASRec on Yelp "
+        description="Train/test SASRec, RLMRec+LightGCN, RLMRec+SASRec on Yelp "
                     "across multiple seeds.")
     parser.add_argument("--skip", nargs="*", default=[],
                         choices=[m["name"] for m in MODELS],

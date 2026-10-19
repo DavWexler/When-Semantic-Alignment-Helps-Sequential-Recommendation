@@ -4,7 +4,7 @@ Amazon-Books, then generate the markdown overview for each.
 What this script does, in order (per dataset):
   1. Invoke `run_all.py` (ML-1M), `run_all_yelp.py` (Yelp), or
      `run_all_amazon.py` (Amazon-Books), which itself:
-       - trains SASRec, RLMRec+LightGCN, SemanticSASRec sequentially
+       - trains SASRec, RLMRec+LightGCN, RLMRec+SASRec sequentially
        - aggregates test metrics into <root>/comparison/{comparison.csv,
          comparison_bars.png, val_NDCG@10_curves.png, summary.txt}
   2. Invoke `make_overview.py --dataset {ml1m,yelp,amazon}` to write
@@ -25,10 +25,10 @@ Examples:
     # All, but skip retraining — just regenerate comparison + overviews
     python run_everything.py --compare_only
 
-    # Yelp + Amazon, smaller Yelp filter, skip semantic-alignment models on ML-1M to save time
+    # Yelp + Amazon, smaller Yelp filter, skip RLMRec on ML-1M to save time
     python run_everything.py --datasets yelp amazon \\
         --yelp_start_year 2019 --yelp_min_inter 20 \\
-        --skip_models_ml rlmrec_lightgcn semantic_sasrec
+        --skip_models_ml rlmrec_lightgcn rlmrec_sasrec
 
 Artifacts land under:
     artifacts/         (ML-1M)         ← run_all.py + make_overview.py --dataset ml1m
@@ -44,7 +44,7 @@ import sys
 import time
 from pathlib import Path
 
-ALL_MODELS = ["sasrec", "rlmrec_lightgcn", "semantic_sasrec"]
+ALL_MODELS = ["sasrec", "rlmrec_lightgcn", "rlmrec_sasrec"]
 ALL_DATASETS = ["ml1m", "yelp", "amazon"]
 
 RUNNER_BY_DATASET = {
@@ -160,7 +160,7 @@ def main() -> None:
                    help="Single-seed legacy alias for --seeds <N>.")
     p.add_argument("--model_name", type=str, default=None,
                    help="Sentence-transformers / HF encoder model name "
-                        "(only affects SemanticSASRec and RLMRec+LightGCN runs).")
+                        "(only affects RLMRec runs).")
 
     # Yelp-only filters.
     p.add_argument("--yelp_start_year", type=int, default=None,
