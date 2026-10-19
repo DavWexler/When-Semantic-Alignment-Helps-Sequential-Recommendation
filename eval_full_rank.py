@@ -51,7 +51,11 @@ def evaluate_full_rank(
     device: torch.device,
     batch_size: int = 256,
 ) -> dict[str, float]:
-    """Score every item for every eval user and compute HR@K / NDCG@K / MRR."""
+    """Score every item for every eval user and compute HR@K / NDCG@K / MRR.
+
+    Callers must put the model in eval mode before passing its scoring
+    function; disabling gradients here does not disable dropout.
+    """
     n = inputs.size(0)
     ranks = np.empty(n, dtype=np.int64)
     with torch.no_grad():
